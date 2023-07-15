@@ -170,7 +170,6 @@ int riscv_pmu_event_set_period(struct perf_event *event)
 		left = (max_period >> 1);
 
 	local64_set(&hwc->prev_count, (u64)-left);
-	perf_event_update_userpage(event);
 
 	return overflow;
 }
@@ -181,9 +180,6 @@ void riscv_pmu_start(struct perf_event *event, int flags)
 	struct riscv_pmu *rvpmu = to_riscv_pmu(event->pmu);
 	uint64_t max_period = riscv_pmu_ctr_get_width_mask(event);
 	u64 init_val;
-
-	if (WARN_ON_ONCE(!(event->hw.state & PERF_HES_STOPPED)))
-		return;
 
 	if (flags & PERF_EF_RELOAD)
 		WARN_ON_ONCE(!(event->hw.state & PERF_HES_UPTODATE));

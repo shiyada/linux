@@ -736,8 +736,13 @@ static void mipid02_set_fmt_source(struct v4l2_subdev *sd,
 {
 	struct mipid02_dev *bridge = to_mipid02_dev(sd);
 
-	/* source pad mirror active sink pad */
-	format->format = bridge->fmt;
+	/* source pad mirror sink pad */
+	if (format->which == V4L2_SUBDEV_FORMAT_ACTIVE)
+		format->format = bridge->fmt;
+	else
+		format->format = *v4l2_subdev_get_try_format(sd, sd_state,
+							     MIPID02_SINK_0);
+
 	/* but code may need to be converted */
 	format->format.code = serial_to_parallel_code(format->format.code);
 
@@ -745,7 +750,8 @@ static void mipid02_set_fmt_source(struct v4l2_subdev *sd,
 	if (format->which != V4L2_SUBDEV_FORMAT_TRY)
 		return;
 
-	*v4l2_subdev_get_try_format(sd, sd_state, format->pad) = format->format;
+	*v4l2_subdev_get_try_format(sd, sd_state, MIPID02_SOURCE) =
+		format->format;
 }
 
 static void mipid02_set_fmt_sink(struct v4l2_subdev *sd,
@@ -763,6 +769,9 @@ static void mipid02_set_fmt_sink(struct v4l2_subdev *sd,
 		fmt = &bridge->fmt;
 
 	*fmt = format->format;
+
+	/* Propagate the format change to the source pad */
+	mipid02_set_fmt_source(sd, sd_state, format);
 }
 
 static int mipid02_set_fmt(struct v4l2_subdev *sd,
@@ -1067,7 +1076,7 @@ mutex_cleanup:
 	return ret;
 }
 
-static int mipid02_remove(struct i2c_client *client)
+static void mipid02_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct mipid02_dev *bridge = to_mipid02_dev(sd);
@@ -1078,8 +1087,6 @@ static int mipid02_remove(struct i2c_client *client)
 	mipid02_set_power_off(bridge);
 	media_entity_cleanup(&bridge->sd.entity);
 	mutex_destroy(&bridge->lock);
-
-	return 0;
 }
 
 static const struct of_device_id mipid02_dt_ids[] = {
@@ -1093,7 +1100,7 @@ static struct i2c_driver mipid02_i2c_driver = {
 		.name  = "st-mipid02",
 		.of_match_table = mipid02_dt_ids,
 	},
-	.probe_new = mipid02_probe,
+	.probe = mipid02_probe,
 	.remove = mipid02_remove,
 };
 

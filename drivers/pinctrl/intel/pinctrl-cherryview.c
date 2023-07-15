@@ -16,12 +16,14 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/seq_file.h>
 #include <linux/types.h>
 
+#include <linux/pinctrl/consumer.h>
+#include <linux/pinctrl/pinconf-generic.h>
+#include <linux/pinctrl/pinconf.h>
 #include <linux/pinctrl/pinctrl.h>
 #include <linux/pinctrl/pinmux.h>
-#include <linux/pinctrl/pinconf.h>
-#include <linux/pinctrl/pinconf-generic.h>
 
 #include "pinctrl-intel.h"
 
@@ -73,7 +75,7 @@ struct intel_pad_context {
 	u32 padctrl1;
 };
 
-#define CHV_INVALID_HWIRQ	((unsigned int)INVALID_HWIRQ)
+#define CHV_INVALID_HWIRQ	(~0U)
 
 /**
  * struct intel_community_context - community context for Cherryview
@@ -627,7 +629,7 @@ static const char *chv_get_group_name(struct pinctrl_dev *pctldev,
 {
 	struct intel_pinctrl *pctrl = pinctrl_dev_get_drvdata(pctldev);
 
-	return pctrl->soc->groups[group].name;
+	return pctrl->soc->groups[group].grp.name;
 }
 
 static int chv_get_group_pins(struct pinctrl_dev *pctldev, unsigned int group,
@@ -635,8 +637,8 @@ static int chv_get_group_pins(struct pinctrl_dev *pctldev, unsigned int group,
 {
 	struct intel_pinctrl *pctrl = pinctrl_dev_get_drvdata(pctldev);
 
-	*pins = pctrl->soc->groups[group].pins;
-	*npins = pctrl->soc->groups[group].npins;
+	*pins = pctrl->soc->groups[group].grp.pins;
+	*npins = pctrl->soc->groups[group].grp.npins;
 	return 0;
 }
 
@@ -692,7 +694,7 @@ static const char *chv_get_function_name(struct pinctrl_dev *pctldev,
 {
 	struct intel_pinctrl *pctrl = pinctrl_dev_get_drvdata(pctldev);
 
-	return pctrl->soc->functions[function].name;
+	return pctrl->soc->functions[function].func.name;
 }
 
 static int chv_get_function_groups(struct pinctrl_dev *pctldev,
@@ -702,8 +704,8 @@ static int chv_get_function_groups(struct pinctrl_dev *pctldev,
 {
 	struct intel_pinctrl *pctrl = pinctrl_dev_get_drvdata(pctldev);
 
-	*groups = pctrl->soc->functions[function].groups;
-	*ngroups = pctrl->soc->functions[function].ngroups;
+	*groups = pctrl->soc->functions[function].func.groups;
+	*ngroups = pctrl->soc->functions[function].func.ngroups;
 	return 0;
 }
 
@@ -721,16 +723,16 @@ static int chv_pinmux_set_mux(struct pinctrl_dev *pctldev,
 	raw_spin_lock_irqsave(&chv_lock, flags);
 
 	/* Check first that the pad is not locked */
-	for (i = 0; i < grp->npins; i++) {
-		if (chv_pad_locked(pctrl, grp->pins[i])) {
+	for (i = 0; i < grp->grp.npins; i++) {
+		if (chv_pad_locked(pctrl, grp->grp.pins[i])) {
 			raw_spin_unlock_irqrestore(&chv_lock, flags);
-			dev_warn(dev, "unable to set mode for locked pin %u\n", grp->pins[i]);
+			dev_warn(dev, "unable to set mode for locked pin %u\n", grp->grp.pins[i]);
 			return -EBUSY;
 		}
 	}
 
-	for (i = 0; i < grp->npins; i++) {
-		int pin = grp->pins[i];
+	for (i = 0; i < grp->grp.npins; i++) {
+		int pin = grp->grp.pins[i];
 		unsigned int mode;
 		bool invert_oe;
 		u32 value;
@@ -947,11 +949,6 @@ static int chv_config_get(struct pinctrl_dev *pctldev, unsigned int pin,
 
 		break;
 
-	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
-		if (!(ctrl1 & CHV_PADCTRL1_ODEN))
-			return -EINVAL;
-		break;
-
 	case PIN_CONFIG_BIAS_HIGH_IMPEDANCE: {
 		u32 cfg;
 
@@ -960,6 +957,16 @@ static int chv_config_get(struct pinctrl_dev *pctldev, unsigned int pin,
 		if (cfg != CHV_PADCTRL0_GPIOCFG_HIZ)
 			return -EINVAL;
 
+		break;
+
+	case PIN_CONFIG_DRIVE_PUSH_PULL:
+		if (ctrl1 & CHV_PADCTRL1_ODEN)
+			return -EINVAL;
+		break;
+
+	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
+		if (!(ctrl1 & CHV_PADCTRL1_ODEN))
+			return -EINVAL;
 		break;
 	}
 
@@ -1406,8 +1413,10 @@ static int chv_gpio_irq_type(struct irq_data *d, unsigned int type)
 	raw_spin_lock_irqsave(&chv_lock, flags);
 
 	ret = chv_gpio_set_intr_line(pctrl, hwirq);
-	if (ret)
-		goto out_unlock;
+	if (ret) {
+		raw_spin_unlock_irqrestore(&chv_lock, flags);
+		return ret;
+	}
 
 	/*
 	 * Pins which can be used as shared interrupt are configured in
@@ -1448,10 +1457,9 @@ static int chv_gpio_irq_type(struct irq_data *d, unsigned int type)
 	else if (type & IRQ_TYPE_LEVEL_MASK)
 		irq_set_handler_locked(d, handle_level_irq);
 
-out_unlock:
 	raw_spin_unlock_irqrestore(&chv_lock, flags);
 
-	return ret;
+	return 0;
 }
 
 static const struct irq_chip chv_gpio_irq_chip = {

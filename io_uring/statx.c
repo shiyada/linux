@@ -22,7 +22,7 @@ struct io_statx {
 
 int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
-	struct io_statx *sx = io_kiocb_to_cmd(req);
+	struct io_statx *sx = io_kiocb_to_cmd(req, struct io_statx);
 	const char __user *path;
 
 	if (sqe->buf_index || sqe->splice_fd_in)
@@ -48,16 +48,16 @@ int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	}
 
 	req->flags |= REQ_F_NEED_CLEANUP;
+	req->flags |= REQ_F_FORCE_ASYNC;
 	return 0;
 }
 
 int io_statx(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_statx *sx = io_kiocb_to_cmd(req);
+	struct io_statx *sx = io_kiocb_to_cmd(req, struct io_statx);
 	int ret;
 
-	if (issue_flags & IO_URING_F_NONBLOCK)
-		return -EAGAIN;
+	WARN_ON_ONCE(issue_flags & IO_URING_F_NONBLOCK);
 
 	ret = do_statx(sx->dfd, sx->filename, sx->flags, sx->mask, sx->buffer);
 	io_req_set_res(req, ret, 0);
@@ -66,7 +66,7 @@ int io_statx(struct io_kiocb *req, unsigned int issue_flags)
 
 void io_statx_cleanup(struct io_kiocb *req)
 {
-	struct io_statx *sx = io_kiocb_to_cmd(req);
+	struct io_statx *sx = io_kiocb_to_cmd(req, struct io_statx);
 
 	if (sx->filename)
 		putname(sx->filename);

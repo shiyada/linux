@@ -2230,7 +2230,7 @@ err:
 	return res;
 }
 
-static int tvp5150_remove(struct i2c_client *c)
+static void tvp5150_remove(struct i2c_client *c)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(c);
 	struct tvp5150 *decoder = to_tvp5150(sd);
@@ -2250,8 +2250,6 @@ static int tvp5150_remove(struct i2c_client *c)
 	v4l2_ctrl_handler_free(&decoder->hdl);
 	pm_runtime_disable(&c->dev);
 	pm_runtime_set_suspended(&c->dev);
-
-	return 0;
 }
 
 /* ----------------------------------------------------------------------- */
@@ -2282,7 +2280,7 @@ static struct i2c_driver tvp5150_driver = {
 		.name	= "tvp5150",
 		.pm	= &tvp5150_pm_ops,
 	},
-	.probe_new	= tvp5150_probe,
+	.probe		= tvp5150_probe,
 	.remove		= tvp5150_remove,
 	.id_table	= tvp5150_id,
 };

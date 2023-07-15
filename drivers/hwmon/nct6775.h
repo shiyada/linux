@@ -5,7 +5,7 @@
 #include <linux/types.h>
 
 enum kinds { nct6106, nct6116, nct6775, nct6776, nct6779, nct6791, nct6792,
-	     nct6793, nct6795, nct6796, nct6797, nct6798 };
+	     nct6793, nct6795, nct6796, nct6797, nct6798, nct6799 };
 enum pwm_enable { off, manual, thermal_cruise, speed_cruise, sf3, sf4 };
 
 #define NUM_TEMP	10	/* Max number of temp attribute sets w/ limits*/
@@ -195,6 +195,8 @@ static inline int nct6775_write_value(struct nct6775_data *data, u16 reg, u16 va
 {
 	return regmap_write(data->regmap, reg, value);
 }
+
+struct nct6775_data *nct6775_update_device(struct device *dev);
 
 bool nct6775_reg_is_word_sized(struct nct6775_data *data, u16 reg);
 int nct6775_probe(struct device *dev, struct nct6775_data *data,

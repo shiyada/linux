@@ -839,7 +839,7 @@ static int bcm_kona_i2c_probe(struct platform_device *pdev)
 	adap = &dev->adapter;
 	i2c_set_adapdata(adap, dev);
 	adap->owner = THIS_MODULE;
-	strlcpy(adap->name, "Broadcom I2C adapter", sizeof(adap->name));
+	strscpy(adap->name, "Broadcom I2C adapter", sizeof(adap->name));
 	adap->algo = &bcm_algo;
 	adap->dev.parent = &pdev->dev;
 	adap->dev.of_node = pdev->dev.of_node;
@@ -859,13 +859,11 @@ probe_disable_clk:
 	return rc;
 }
 
-static int bcm_kona_i2c_remove(struct platform_device *pdev)
+static void bcm_kona_i2c_remove(struct platform_device *pdev)
 {
 	struct bcm_kona_i2c_dev *dev = platform_get_drvdata(pdev);
 
 	i2c_del_adapter(&dev->adapter);
-
-	return 0;
 }
 
 static const struct of_device_id bcm_kona_i2c_of_match[] = {
@@ -880,7 +878,7 @@ static struct platform_driver bcm_kona_i2c_driver = {
 		   .of_match_table = bcm_kona_i2c_of_match,
 		   },
 	.probe = bcm_kona_i2c_probe,
-	.remove = bcm_kona_i2c_remove,
+	.remove_new = bcm_kona_i2c_remove,
 };
 module_platform_driver(bcm_kona_i2c_driver);
 

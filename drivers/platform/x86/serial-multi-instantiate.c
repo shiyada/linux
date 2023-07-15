@@ -139,7 +139,8 @@ static int smi_spi_probe(struct platform_device *pdev, struct smi *smi,
 			goto error;
 		}
 
-		dev_dbg(dev, "SPI device %s using chip select %u", name, spi_dev->chip_select);
+		dev_dbg(dev, "SPI device %s using chip select %u", name,
+			spi_get_chipselect(spi_dev, 0));
 
 		smi->spi_devs[i] = spi_dev;
 		smi->spi_num++;
@@ -265,13 +266,11 @@ static int smi_probe(struct platform_device *pdev)
 	}
 }
 
-static int smi_remove(struct platform_device *pdev)
+static void smi_remove(struct platform_device *pdev)
 {
 	struct smi *smi = platform_get_drvdata(pdev);
 
 	smi_devs_unregister(smi);
-
-	return 0;
 }
 
 static const struct smi_node bsg1160_data = {
@@ -328,6 +327,7 @@ static const struct acpi_device_id smi_acpi_ids[] = {
 	{ "INT3515", (unsigned long)&int3515_data },
 	/* Non-conforming _HID for Cirrus Logic already released */
 	{ "CLSA0100", (unsigned long)&cs35l41_hda },
+	{ "CLSA0101", (unsigned long)&cs35l41_hda },
 	{ }
 };
 MODULE_DEVICE_TABLE(acpi, smi_acpi_ids);
@@ -338,7 +338,7 @@ static struct platform_driver smi_driver = {
 		.acpi_match_table = smi_acpi_ids,
 	},
 	.probe = smi_probe,
-	.remove = smi_remove,
+	.remove_new = smi_remove,
 };
 module_platform_driver(smi_driver);
 

@@ -31,9 +31,18 @@ struct io_close {
 	u32				file_slot;
 };
 
+static bool io_openat_force_async(struct io_open *open)
+{
+	/*
+	 * Don't bother trying for O_TRUNC, O_CREAT, or O_TMPFILE open,
+	 * it'll always -EAGAIN
+	 */
+	return open->how.flags & (O_TRUNC | O_CREAT | O_TMPFILE);
+}
+
 static int __io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
-	struct io_open *open = io_kiocb_to_cmd(req);
+	struct io_open *open = io_kiocb_to_cmd(req, struct io_open);
 	const char __user *fname;
 	int ret;
 
@@ -61,12 +70,14 @@ static int __io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe
 
 	open->nofile = rlimit(RLIMIT_NOFILE);
 	req->flags |= REQ_F_NEED_CLEANUP;
+	if (io_openat_force_async(open))
+		req->flags |= REQ_F_FORCE_ASYNC;
 	return 0;
 }
 
 int io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
-	struct io_open *open = io_kiocb_to_cmd(req);
+	struct io_open *open = io_kiocb_to_cmd(req, struct io_open);
 	u64 mode = READ_ONCE(sqe->len);
 	u64 flags = READ_ONCE(sqe->open_flags);
 
@@ -76,7 +87,7 @@ int io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 int io_openat2_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
-	struct io_open *open = io_kiocb_to_cmd(req);
+	struct io_open *open = io_kiocb_to_cmd(req, struct io_open);
 	struct open_how __user *how;
 	size_t len;
 	int ret;
@@ -95,7 +106,7 @@ int io_openat2_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 int io_openat2(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_open *open = io_kiocb_to_cmd(req);
+	struct io_open *open = io_kiocb_to_cmd(req, struct io_open);
 	struct open_flags op;
 	struct file *file;
 	bool resolve_nonblock, nonblock_set;
@@ -108,12 +119,7 @@ int io_openat2(struct io_kiocb *req, unsigned int issue_flags)
 	nonblock_set = op.open_flag & O_NONBLOCK;
 	resolve_nonblock = open->how.resolve & RESOLVE_CACHED;
 	if (issue_flags & IO_URING_F_NONBLOCK) {
-		/*
-		 * Don't bother trying for O_TRUNC, O_CREAT, or O_TMPFILE open,
-		 * it'll always -EAGAIN
-		 */
-		if (open->how.flags & (O_TRUNC | O_CREAT | O_TMPFILE))
-			return -EAGAIN;
+		WARN_ON_ONCE(io_openat_force_async(open));
 		op.lookup_flags |= LOOKUP_CACHED;
 		op.open_flag |= O_NONBLOCK;
 	}
@@ -144,7 +150,6 @@ int io_openat2(struct io_kiocb *req, unsigned int issue_flags)
 
 	if ((issue_flags & IO_URING_F_NONBLOCK) && !nonblock_set)
 		file->f_flags &= ~O_NONBLOCK;
-	fsnotify_open(file);
 
 	if (!fixed)
 		fd_install(ret, file);
@@ -167,7 +172,7 @@ int io_openat(struct io_kiocb *req, unsigned int issue_flags)
 
 void io_open_cleanup(struct io_kiocb *req)
 {
-	struct io_open *open = io_kiocb_to_cmd(req);
+	struct io_open *open = io_kiocb_to_cmd(req, struct io_open);
 
 	if (open->filename)
 		putname(open->filename);
@@ -187,14 +192,14 @@ int __io_close_fixed(struct io_ring_ctx *ctx, unsigned int issue_flags,
 
 static inline int io_close_fixed(struct io_kiocb *req, unsigned int issue_flags)
 {
-	struct io_close *close = io_kiocb_to_cmd(req);
+	struct io_close *close = io_kiocb_to_cmd(req, struct io_close);
 
 	return __io_close_fixed(req->ctx, issue_flags, close->file_slot - 1);
 }
 
 int io_close_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
-	struct io_close *close = io_kiocb_to_cmd(req);
+	struct io_close *close = io_kiocb_to_cmd(req, struct io_close);
 
 	if (sqe->off || sqe->addr || sqe->len || sqe->rw_flags || sqe->buf_index)
 		return -EINVAL;
@@ -212,7 +217,7 @@ int io_close_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 int io_close(struct io_kiocb *req, unsigned int issue_flags)
 {
 	struct files_struct *files = current->files;
-	struct io_close *close = io_kiocb_to_cmd(req);
+	struct io_close *close = io_kiocb_to_cmd(req, struct io_close);
 	struct fdtable *fdt;
 	struct file *file;
 	int ret = -EBADF;
